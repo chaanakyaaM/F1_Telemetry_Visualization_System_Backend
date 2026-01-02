@@ -9,7 +9,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
 
-fastf1.Cache.enable_cache("cache")
+fastf1.Cache.enable_cache("cache_f1")
 
 load_dotenv()
 
