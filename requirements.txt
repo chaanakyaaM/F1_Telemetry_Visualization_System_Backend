@@ -1,0 +1,6 @@
+fastapi>=0.127.0
+fastf1>=3.7.0
+notebook>=7.5.1
+pandas>=2.3.3
+python-dotenv>=1.2.1
+uvicorn>=0.40.0
