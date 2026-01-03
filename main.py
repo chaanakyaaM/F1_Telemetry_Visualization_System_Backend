@@ -12,9 +12,7 @@ load_dotenv()
 
 ENV = os.getenv("ENV", "development").lower()
 
-if ENV == "production":
-    fastf1.Cache.enable_cache(None)
-else:
+if ENV != "production":
     cache_dir = os.getenv("FASTF1_CACHE_DIR", "f1_cache")
     os.makedirs(cache_dir, exist_ok=True)
     fastf1.Cache.enable_cache(cache_dir)
