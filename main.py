@@ -8,13 +8,17 @@ from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
+load_dotenv()
 
-if os.getenv("ENV") == "production":
+ENV = os.getenv("ENV", "development").lower()
+
+if ENV == "production":
     fastf1.Cache.enable_cache(None)
 else:
-    fastf1.Cache.enable_cache("f1_cache")
+    cache_dir = os.getenv("FASTF1_CACHE_DIR", "f1_cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    fastf1.Cache.enable_cache(cache_dir)
 
-load_dotenv()
 
 app = FastAPI()
 
