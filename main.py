@@ -9,7 +9,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
 
-fastf1.Cache.enable_cache("f1_cache")
+if os.getenv("ENV") == "production":
+    fastf1.Cache.enable_cache(None)
+else:
+    fastf1.Cache.enable_cache("f1_cache")
 
 load_dotenv()
 
