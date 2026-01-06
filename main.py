@@ -8,104 +8,120 @@ from fastapi import FastAPI
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.middleware.cors import CORSMiddleware
 
+# Load environment variables from .env file
 load_dotenv()
 
+# Detect environment (development / production)
 ENV = os.getenv("ENV", "development").lower()
 
+# Enable FastF1 caching only in non-production environments
 if ENV != "production":
     cache_dir = os.getenv("FASTF1_CACHE_DIR", "f1_cache")
     os.makedirs(cache_dir, exist_ok=True)
     fastf1.Cache.enable_cache(cache_dir)
 
-
+# Initialize FastAPI app
 app = FastAPI()
 
+# Frontend URL for CORS (defaults to allow all)
 frontend_url = os.getenv("FRONTEND_URL", "*")
 
+# Enable GZip compression and CORS
 app.add_middleware(GZipMiddleware, minimum_size=10000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[frontend_url],
-    allow_methods=["*"], 
-    allow_headers=["*"], 
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
+# Cached Loaders
 
+# Cache sessions to avoid repeated expensive loads
 @lru_cache(maxsize=2)
 def _load_session(year: int, event: str, session_name: str):
     session = fastf1.get_session(year, event, session_name)
     session.load(laps=True, telemetry=True)
     return session
 
+# Cache event schedule per year
 @lru_cache(maxsize=1)
-def _load_event(year:int):
-    session = fastf1.get_event_schedule(year)
-    return session
+def _load_event(year: int):
+    return fastf1.get_event_schedule(year)
 
-async def get_event(year:int):
+# Async wrappers to run blocking FastF1 calls in threads
+async def get_event(year: int):
     return await asyncio.to_thread(_load_event, year)
 
 async def load_session(year: int, event: str, session_name: str):
     return await asyncio.to_thread(_load_session, year, event, session_name)
 
-
+# Routes
 @app.get("/")
 async def home():
     return {"message": "hello world check"}
 
-
+# Get fastest lap telemetry for a driver
 @app.get("/driver/{year}/{event}/{driver_id}")
 async def get_driver_data(year: int, event: str, driver_id: str):
     try:
+        # Handle empty driver selection
         if driver_id == "null":
             return {"data": [{"Time_sec": 0, "X": 0, "Y": 0, "Speed": 0}]}
-           
+
         session = await load_session(year, event, "R")
 
         def process():
             lap = session.laps.pick_drivers([driver_id]).pick_fastest()
             telemetry = lap.get_telemetry().iloc[::3].copy()
             telemetry["Time_sec"] = telemetry["Time"].dt.total_seconds()
-            return telemetry[["Time_sec", "X", "Y", "Speed", "nGear","Throttle","Distance","RPM"]].to_dict("records")
+            return telemetry[
+                ["Time_sec", "X", "Y", "Speed", "nGear", "Throttle", "Distance", "RPM"]
+            ].to_dict("records")
 
-        data = await asyncio.to_thread(process)
-        return {"data": data}
+        return {"data": await asyncio.to_thread(process)}
 
     except Exception:
         return {"data": [{"Time_sec": 0, "X": 0, "Y": 0, "Speed": 0}]}
-    
 
+# Get full race/session telemetry for a driver
 @app.get("/fullrace/{year}/{event}/{session}/{driver_id}")
-async def get(year:int, event:str, session:str, driver_id:str):
+async def get(year: int, event: str, session: str, driver_id: str):
     try:
+        # Handle empty driver selection
         if driver_id == "null":
             return {"data": [{"Time_sec": 0, "X": 0, "Y": 0, "Speed": 0}]}
-           
-        session = await load_session(year,event, session)
-        def process():
-            lap = session.laps.pick_drivers([driver_id])
-            telemetry = lap.get_telemetry().iloc[::4].copy()
-            telemetry["Time_sec"] = telemetry["Time"].dt.total_seconds()
-            return telemetry[["Time_sec", "X", "Y", "Speed", "nGear","Throttle","Distance","RPM"]].to_dict("records")
 
-        data = await asyncio.to_thread(process)
-        return {"data": data}
-    except Exception as e:
+        session = await load_session(year, event, session)
+
+        def process():
+            laps = session.laps.pick_drivers([driver_id])
+            telemetry = laps.get_telemetry().iloc[::4].copy()
+            telemetry["Time_sec"] = telemetry["Time"].dt.total_seconds()
+            return telemetry[
+                ["Time_sec", "X", "Y", "Speed", "nGear", "Throttle", "Distance", "RPM"]
+            ].to_dict("records")
+
+        return {"data": await asyncio.to_thread(process)}
+
+    except Exception:
         return {"data": [{"Time_sec": 0, "X": 0, "Y": 0, "Speed": 0}]}
 
-
-
+# List event countries for a season
 @app.get("/events/{year}")
-async def get_events_data(year:int):
+async def get_events_data(year: int):
     try:
         event = await get_event(year)
+
         def process():
             return {"Countries": event["Country"].tolist()}
-        return await asyncio.to_thread(process)
-    except Exception as e:
-        return {"Countries": [],"e":str(e)}
-    
 
+        return await asyncio.to_thread(process)
+
+    except Exception as e:
+        return {"Countries": [], "e": str(e)}
+
+# Generate SVG path for track layout using fastest lap
 @app.get("/track/{year}/{event}")
 async def get_track_data(year: int, event: str):
     try:
@@ -118,15 +134,15 @@ async def get_track_data(year: int, event: str):
                 f"{x:.3f},{y:.3f}" for x, y in zip(coords["X"], coords["Y"])
             ) + " Z"
 
-        path = await asyncio.to_thread(process)
-        return {"path": path}
+        return {"path": await asyncio.to_thread(process)}
 
     except Exception:
+        # Fallback circular SVG path
         return {
             "path": "M 50,100 A 50,50 0 1,0 150,100 A 50,50 0 1,0 50,100"
         }
 
-
+# Event metadata
 @app.get("/data/{year}/{event}/{session_name}")
 async def get_data(year: int, event: str, session_name: str):
     def process():
@@ -142,7 +158,7 @@ async def get_data(year: int, event: str, session_name: str):
 
     return await asyncio.to_thread(process)
 
-
+# Get all drivers in a session with fullnames
 @app.get("/getdrivers/{year}/{event}/{session_name}")
 async def get_driver(year: int, event: str, session_name: str):
     session = await load_session(year, event, "R")
@@ -159,11 +175,9 @@ async def get_driver(year: int, event: str, session_name: str):
 
     return await asyncio.to_thread(process)
 
-
+# Get detailed info for a specific driver
 @app.get("/racerDetails/{year}/{event}/{session_name}/{driver_id}")
-async def get_racers_data(
-    year: int, event: str, session_name: str, driver_id: str
-):
+async def get_racers_data(year: int, event: str, session_name: str, driver_id: str):
     session = await load_session(year, event, "R")
 
     def process():
